@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -33,6 +35,36 @@ func getTopic(message string) string {
 	return strings.Replace(data["asterisk_id"].(string), ":", "_", -1)
 }
 
+func getSystemName() string {
+	uri := url.URL{
+		Scheme: "http",
+		Host:   os.Getenv("VOIP_HOST") + ":" + os.Getenv("VOIP_PORT"),
+		Path:   "/ari/asterisk/info",
+	}
+
+	values := url.Values{}
+	values.Add("api_key", os.Getenv("VOIP_USER")+":"+os.Getenv("VOIP_PASS"))
+	values.Add("only", "config")
+	uri.RawQuery = values.Encode()
+
+	resp, err := http.Get(uri.String())
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer resp.Body.Close()
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	data := map[string]interface{}{}
+	json.Unmarshal(bodyBytes, &data)
+	return data["config"].(map[string]interface{})["name"].(string)
+}
 func receiveHandler(connection *websocket.Conn) {
 	defer close(done)
 	for {
@@ -109,13 +141,18 @@ func main() {
 	broker_messages = make(chan string)
 
 	signal.Notify(interrupt, os.Interrupt)
-
+	// systemName := getSystemName()
+	// fmt.Println(systemName)
 	conn := getConnection()
 	brokerClient := getBrokerClient()
 
 	go reader()
 	go receiveHandler(conn)
 	go publishHandler(brokerClient)
+
+	fmt.Println("* Running Application: " + os.Getenv("VOIP_APP"))
+	fmt.Println("* Connected to VOIP: " + os.Getenv("VOIP_HOST") + ":" + os.Getenv("VOIP_PORT"))
+	fmt.Println("* Connected to BROKER: " + os.Getenv("BROKER_HOST") + ":" + os.Getenv("BROKER_PORT"))
 
 	for {
 		select {
